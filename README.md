@@ -1,36 +1,41 @@
 # MiMo Proxy
 
-> 思维链缓存代理 · Chain-of-Thought Reasoning Cache Proxy
+> 解决 MiMo 模型多轮会话中 tool_calls 与 reasoning 不匹配导致的 400 错误
 
-**MiMo Proxy** 是一个透明的 API 代理，专门解决多轮会话中思维链（reasoning / thinking）重复计算的问题。
+MiMo 模型在响应中会同时返回 `tool_calls` 和 `reasoning_content`（OpenAI 协议）/ `thinking`（Anthropic 协议）。但在多轮会话中，客户端发送的 assistant 消息只有 `tool_calls` 而缺少对应的 `reasoning_content`，上游 API 会因此返回 **400 Bad Request**。
 
-它位于客户端与大模型 API 之间，自动**缓存**上一轮的 reasoning/thinking 内容，并在下一轮请求中**注入**回消息体，让模型能"记住自己刚才在想什么"，而无需重新思考。大幅节省 tokens，提升多轮交互的连贯性。
+**MiMo Proxy** 位于客户端与上游之间，自动缓存上一轮响应中的 reasoning/thinking，并在下一轮请求中**注入**回对应的 assistant 消息，让请求格式符合上游要求。当无缓存可用时，自动将 tool_calls 降级为文本描述，彻底避免 400。
 
 ---
 
 ## 工作原理
 
 ```
-客户端 ──→ MiMo Proxy ──→ 上游 API（OpenAI / Anthropic）
-              │
-              ├─ 首次请求：透传并缓存 reasoning/thinking
-              └─ 后续请求：注入缓存的 reasoning/thinking → 再发往上游
+                    首次请求                         后续请求
+客户端 ─── req (无 reasoning) ──→  代理  ──→  上游
+                                          ↑
+                                    缓存 reasoning ←─── 响应
+
+客户端 ─── req (无 reasoning) ──→  代理  ──→  req (注入 reasoning) ──→ 上游
+                                     ↑
+                              从缓存取出 reasoning
 ```
 
-### 支持协议
+### 请求处理（注入 reasoning 避免 400）
 
-| 协议 | 端点 | 缓存字段 |
-|------|------|----------|
-| **OpenAI** | `/v1/chat/completions`, `/chat/completions` | `reasoning_content` |
-| **Anthropic** | `/v1/messages`, `/messages` | `thinking` content block |
+| 场景 | 协议 | 行为 |
+|------|------|------|
+| **有缓存** | OpenAI | 注入 `reasoning_content` 到 assistant 消息 |
+| **有缓存** | Anthropic | 插入 `thinking` block 到消息 content 中 |
+| **无缓存（降级）** | OpenAI | 剥离 `tool_calls`，替换为 `[调用了 xxx]` 文本 |
+| **无缓存（降级）** | Anthropic | `tool_use` 转为文本描述，对应 `tool_result` 也转为文本 |
 
-### 核心能力
+### 响应处理（缓存 reasoning）
 
-- **思维链缓存** — 自动提取并缓存 assistant 消息中的 reasoning/thinking
-- **智能注入** — 匹配 tool_call_id，将缓存的思维链精确注入到对应消息
-- **优雅降级** — 无缓存时自动剥离 tool_calls 转为文本描述，避免 400 错误
-- **流式/非流式全兼容** — SSE 流式转发同时实时累积 reasoning
-- **双协议透明** — OpenAI 和 Anthropic 协议各自独立处理，互不干扰
+| 协议 | 缓存来源 |
+|------|---------|
+| **OpenAI** | 非流式：`choices[].message.reasoning_content`；流式：累积 `delta.reasoning_content` |
+| **Anthropic** | 非流式：`content[].thinking`；流式：累积 `delta.thinking_delta` |
 
 ---
 
@@ -46,7 +51,7 @@ pip install -r requirements.txt
 
 ```bash
 cp config.example.yaml config.yaml
-# 编辑 config.yaml 修改上游地址和密钥
+# 编辑 config.yaml 修改上游地址
 ```
 
 所有配置项均可通过环境变量覆盖（优先级高于 YAML）：
