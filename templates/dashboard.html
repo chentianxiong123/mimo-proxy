@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MiMo 思维链代理</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+header h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:10px}
+header h1 .badge{background:#238636;color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:500}
+header .info{font-size:13px;color:#8b949e}
+.container{max-width:1200px;margin:0 auto;padding:20px 24px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px}
+.card .label{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}
+.card .value{font-size:26px;font-weight:700;margin-top:6px;color:#f0f6fc}
+.card .value.green{color:#3fb950}
+.card .value.red{color:#f85149}
+.card .value.orange{color:#d29922}
+.card .value.blue{color:#58a6ff}
+
+.section-title{font-size:15px;font-weight:600;margin:20px 0 10px;padding-bottom:8px;border-bottom:1px solid #21262d;display:flex;align-items:center;gap:8px}
+.section-title small{font-weight:400;font-size:12px;color:#8b949e}
+
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #21262d}
+th{color:#8b949e;font-weight:500;font-size:12px;width:160px}
+td{color:#e1e4e8}
+tr:hover td{background:#1c2128}
+
+.actions{display:flex;gap:10px;align-items:center;margin:16px 0}
+.btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:7px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
+.btn:hover{background:#30363d;border-color:#8b949e}
+.btn.danger{border-color:#f85149;color:#f85149}
+.btn.danger:hover{background:#f85149;color:#fff}
+.btn.primary{background:#238636;border-color:#238636;color:#fff}
+.btn.primary:hover{background:#2ea043}
+.actions small{color:#8b949e;font-size:12px}
+
+.log-box{background:#0d1117;border:1px solid #30363d;border-radius:8px;max-height:360px;overflow-y:auto;font-family:'Cascadia Code','Fira Code','JetBrains Mono',monospace;font-size:12px;line-height:1.8}
+.log-box::-webkit-scrollbar{width:6px}
+.log-box::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.log-box::-webkit-scrollbar-track{background:transparent}
+.log-entry{padding:3px 14px;border-bottom:1px solid #1c2128;white-space:pre-wrap;word-break:break-all}
+.log-entry:last-child{border-bottom:none}
+.log-entry .time{color:#484f58;margin-right:8px}
+.log-entry .level{display:inline-block;width:52px;font-weight:600}
+.log-entry .info{color:#58a6ff}
+.log-entry .warning{color:#d29922}
+.log-entry .error{color:#f85149}
+.log-entry .success{color:#3fb950}
+.log-entry .system{color:#8b949e}
+
+@media(max-width:600px){.cards{grid-template-columns:repeat(2,1fr)}header{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<header>
+  <h1>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+    MiMo 思维链代理
+    <span class="badge">v2.0</span>
+  </h1>
+  <div class="info" id="headerInfo">加载中...</div>
+</header>
+<div class="container">
+  <div class="cards" id="cards"></div>
+
+  <div class="section-title">配置信息</div>
+  <table id="cfg"></table>
+
+  <div class="actions">
+    <button class="btn primary" onclick="clearCache()">清空缓存</button>
+    <button class="btn" onclick="refresh()">刷新</button>
+    <small>自动刷新（每 5 秒）</small>
+  </div>
+
+  <div class="section-title">
+    运行日志
+    <small id="lcnt"></small>
+  </div>
+  <div class="log-box" id="logs"></div>
+</div>
+
+<script>
+function $(id){return document.getElementById(id)}
+async function fetchJSON(u,o){try{const r=await fetch(u,o);return await r.json()}catch{return null}}
+
+function levelClass(level){
+  switch(level){
+    case 'INFO': return 'info'
+    case 'WARNING': return 'warning'
+    case 'ERROR': return 'error'
+    case 'SUCCESS': return 'success'
+    default: return 'system'
+  }
+}
+
+async function refresh(){
+  const d=await fetchJSON('/api/stats')
+  if(!d) return
+  const s=d.stats,c=d.cache
+
+  $('headerInfo').textContent = '运行中 · 上游: ' + d.upstream
+
+  const cards = [
+    ['总请求', s.requests, ''],
+    ['成功', s.success, 'green'],
+    ['失败', s.failed, s.failed > 0 ? 'red' : ''],
+    ['流式', s.stream, 'blue'],
+    ['缓存命中', s.cache_hits+' ('+s.hit_rate+')', 'green'],
+    ['降级', s.degraded, s.degraded > 0 ? 'orange' : ''],
+    ['重试', s.retries, s.retries > 0 ? 'orange' : ''],
+    ['缓存大小', c.size+'/'+c.max, c.size/c.max > 0.8 ? 'orange' : ''],
+    ['运行时长', s.uptime, '']
+  ]
+  $('cards').innerHTML = cards.map(([label,val,cls]) =>
+    `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${val}</div></div>`
+  ).join('')
+
+  $('cfg').innerHTML = [
+    ['上游地址', d.upstream],
+    ['监听地址', '{{HOST}}:{{PORT}}'],
+    ['缓存后端', c.backend],
+    ['过期时间', c.ttl + ' 秒'],
+    ['工具索引', c.tc_index + ' 条']
+  ].map(([k,v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')
+
+  const ld=await fetchJSON('/api/logs?count=80')
+  if(!ld) return
+  const el=$('logs')
+  const atBot = el.scrollTop + el.clientHeight >= el.scrollHeight - 20
+  el.innerHTML = ld.logs.map(l =>
+    `<div class="log-entry"><span class="time">${l.time}</span><span class="level ${levelClass(l.level)}">[${l.level}]</span>${l.msg}</div>`
+  ).join('')
+  $('lcnt').textContent = '共 ' + ld.logs.length + ' 条'
+  if(atBot) el.scrollTop = el.scrollHeight
+}
+
+async function clearCache(){
+  await fetchJSON('/api/cache/clear', {method:'POST'})
+  refresh()
+}
+
+refresh()
+setInterval(refresh, 5000)
+</script>
+</body>
+</html>

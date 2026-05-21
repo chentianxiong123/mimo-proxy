@@ -1,0 +1,55 @@
+# MiMo Proxy
+# 复制此文件为 config.yaml 后修改
+# 所有配置项均可通过环境变量覆盖，详见下方说明
+
+# 上游 API 地址（完整 URL，含 /v1 路径）
+# 环境变量: MIMO_API_BASE
+upstream_api_base: "https://token-plan-cn.xiaomimimio.com/v1"
+
+# API 密钥（可选，设置了会覆盖请求头中的 Authorization）
+# 优先推荐通过环境变量 MIMO_API_KEY 设置，避免密钥写入文件
+# api_key: "sk-your-key-here"
+
+# 服务监听配置
+server:
+  host: "0.0.0.0"
+  port: 8899
+
+# 缓存配置
+cache:
+  max_size: 2000       # 最大缓存条目数
+  ttl_seconds: 7200    # 缓存过期时间（秒）
+  backend: "memory"    # 可选: "memory" 或 "redis"
+  redis:
+    url: "redis://localhost:6379/0"
+    prefix: "mimo:rc:"
+
+# 持久化日志（SQLite）
+logging:
+  persistent: false    # 是否将日志持久化到 SQLite
+  db_path: "./logs/mimo_proxy.db"
+  retain_days: 7       # 日志保留天数
+
+# 重试配置
+retry:
+  max_retries: 3
+  backoff_base: 2      # 退避倍数
+
+# 仪表盘配置
+dashboard:
+  enabled: true
+  log_buffer_size: 200
+
+# ─────────────────────────────────────────────
+# 环境变量速查（优先级高于 YAML 配置）
+# ─────────────────────────────────────────────
+# MIMO_API_KEY       API 密钥（推荐用此方式，避免明文写文件）
+# MIMO_API_BASE      上游 API 地址
+# MIMO_LISTEN_HOST   监听地址（默认 0.0.0.0）
+# MIMO_LISTEN_PORT   监听端口（默认 8899）
+# MIMO_CACHE_MAX_SIZE 最大缓存条数
+# MIMO_CACHE_TTL     缓存过期秒数
+# MIMO_CACHE_BACKEND 缓存后端（memory / redis）
+# MIMO_REDIS_URL     Redis 连接地址
+# MIMO_LOG_PERSISTENT 是否持久化日志（true/false）
+# MIMO_LOG_DB_PATH   日志数据库路径

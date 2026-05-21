@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# IDE & Local config
+.idea/
+.vscode/
+*.swp
+.claude/
+
+# Config (copy from config.example.yaml)
+config.yaml
+
+# Environment & OS
+.env
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
