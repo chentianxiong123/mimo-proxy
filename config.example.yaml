@@ -6,9 +6,7 @@
 # 环境变量: MIMO_API_BASE
 upstream_api_base: "https://token-plan-cn.xiaomimimio.com/v1"
 
-# API 密钥（可选，设置了会覆盖请求头中的 Authorization）
-# 优先推荐通过环境变量 MIMO_API_KEY 设置，避免密钥写入文件
-# api_key: "sk-your-key-here"
+# API 密钥由下游客户端透传，代理不管理密钥
 
 # 服务监听配置
 server:
@@ -19,10 +17,8 @@ server:
 cache:
   max_size: 2000       # 最大缓存条目数
   ttl_seconds: 7200    # 缓存过期时间（秒）
-  backend: "memory"    # 可选: "memory" 或 "redis"
-  redis:
-    url: "redis://localhost:6379/0"
-    prefix: "mimo:rc:"
+  backend: "memory"    # 可选: "memory"、"sqlite" 或 "tiered"
+  db_path: "cache.db"  # SQLite 缓存数据库路径（sqlite / tiered 后端生效）
 
 # 持久化日志（SQLite）
 logging:
@@ -43,13 +39,12 @@ dashboard:
 # ─────────────────────────────────────────────
 # 环境变量速查（优先级高于 YAML 配置）
 # ─────────────────────────────────────────────
-# MIMO_API_KEY       API 密钥（推荐用此方式，避免明文写文件）
 # MIMO_API_BASE      上游 API 地址
 # MIMO_LISTEN_HOST   监听地址（默认 0.0.0.0）
 # MIMO_LISTEN_PORT   监听端口（默认 8899）
 # MIMO_CACHE_MAX_SIZE 最大缓存条数
 # MIMO_CACHE_TTL     缓存过期秒数
-# MIMO_CACHE_BACKEND 缓存后端（memory / redis）
-# MIMO_REDIS_URL     Redis 连接地址
+# MIMO_CACHE_BACKEND 缓存后端（memory / sqlite / tiered）
+# MIMO_CACHE_DB_PATH SQLite 缓存数据库路径（默认 cache.db）
 # MIMO_LOG_PERSISTENT 是否持久化日志（true/false）
 # MIMO_LOG_DB_PATH   日志数据库路径

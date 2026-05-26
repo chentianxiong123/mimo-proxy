@@ -55,6 +55,21 @@ tr:hover td{background:#1c2128}
 .log-entry .system{color:#8b949e}
 
 @media(max-width:600px){.cards{grid-template-columns:repeat(2,1fr)}header{flex-direction:column;align-items:flex-start}}
+
+.up-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#161b22;border:1px solid #30363d;border-radius:8px;margin-bottom:8px;transition:.15s}
+.up-item.active{border-color:#238636;background:#1a2a1a}
+.up-item .up-status{width:8px;height:8px;border-radius:50%;background:#484f58;flex-shrink:0}
+.up-item.active .up-status{background:#3fb950}
+.up-item .up-info{flex:1;min-width:0}
+.up-item .up-name{font-weight:600;font-size:14px;color:#f0f6fc}
+.up-item .up-url{font-size:12px;color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.up-item .up-actions{display:flex;gap:6px;flex-shrink:0}
+.up-item .up-actions .btn{padding:4px 12px;font-size:12px}
+.up-add{display:flex;gap:8px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
+.inp{background:#0d1117;border:1px solid #30363d;color:#e1e4e8;padding:7px 12px;border-radius:6px;font-size:13px;outline:none;transition:.15s}
+.inp:focus{border-color:#58a6ff}
+.inp-wide{flex:1;min-width:200px}
+.inp-label{font-size:12px;color:#8b949e;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -71,6 +86,35 @@ tr:hover td{background:#1c2128}
 
   <div class="section-title">配置信息</div>
   <table id="cfg"></table>
+
+  <div class="section-title">
+    缓存设置
+    <small>修改即时生效</small>
+  </div>
+  <div id="cacheSettings" class="up-add" style="margin-bottom:16px">
+    <label class="inp-label">内存上限</label>
+    <input type="number" id="csHotMax" class="inp" style="width:90px" min="100">
+    <span id="coldWrap">
+      <label class="inp-label">DB 上限</label>
+      <input type="number" id="csColdMax" class="inp" style="width:90px" min="100">
+    </span>
+    <label class="inp-label">TTL（秒）</label>
+    <input type="number" id="csTtl" class="inp" style="width:100px" min="60">
+    <button class="btn primary" onclick="saveCacheConfig()">应用</button>
+    <span id="csMsg" style="font-size:12px;color:#3fb950;display:none">已更新</span>
+  </div>
+
+  <div class="section-title">
+    上游管理
+    <small>点击切换活跃上游</small>
+  </div>
+  <div id="upstreamList" style="margin-bottom:16px"></div>
+  <div class="up-add" id="upAddForm">
+    <input type="text" id="upName" placeholder="名称" class="inp">
+    <input type="text" id="upUrl" placeholder="https://api.example.com/v1" class="inp inp-wide">
+    <input type="text" id="upModel" placeholder="模型名（空=任意）" class="inp">
+    <button class="btn primary" onclick="addUpstream()">添加</button>
+  </div>
 
   <div class="actions">
     <button class="btn primary" onclick="clearCache()">清空缓存</button>
@@ -114,7 +158,7 @@ async function refresh(){
     ['缓存命中', s.cache_hits+' ('+s.hit_rate+')', 'green'],
     ['降级', s.degraded, s.degraded > 0 ? 'orange' : ''],
     ['重试', s.retries, s.retries > 0 ? 'orange' : ''],
-    ['缓存大小', c.size+'/'+c.max, c.size/c.max > 0.8 ? 'orange' : ''],
+    ['缓存大小', c.size+'/'+ (c.hot ? c.hot.max : c.max), c.size/(c.hot?c.hot.max:c.max) > 0.8 ? 'orange' : ''],
     ['运行时长', s.uptime, '']
   ]
   $('cards').innerHTML = cards.map(([label,val,cls]) =>
@@ -125,8 +169,8 @@ async function refresh(){
     ['上游地址', d.upstream],
     ['监听地址', '{{HOST}}:{{PORT}}'],
     ['缓存后端', c.backend],
-    ['过期时间', c.ttl + ' 秒'],
-    ['工具索引', c.tc_index + ' 条']
+    ['过期时间', (c.hot ? c.hot.ttl : c.ttl) + ' 秒'],
+    ['工具索引', (c.hot ? c.hot.tc_index : c.tc_index) + ' 条']
   ].map(([k,v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')
 
   const ld=await fetchJSON('/api/logs?count=80')
@@ -145,8 +189,98 @@ async function clearCache(){
   refresh()
 }
 
+async function refreshUpstreams(){
+  const d=await fetchJSON('/api/upstreams')
+  if(!d) return
+  const el=$('upstreamList')
+  el.innerHTML = d.upstreams.map(u => {
+    const cls = u.is_active ? 'up-item active' : 'up-item'
+    const btns = u.is_active
+      ? '<span style="color:#3fb950;font-size:12px;font-weight:600">当前</span>'
+      : `<button class="btn" onclick="switchUpstream(${u.id})">切换</button>
+         <button class="btn danger" onclick="deleteUpstream(${u.id})">删除</button>`
+    return `<div class="${cls}">
+      <div class="up-status"></div>
+      <div class="up-info">
+        <div class="up-name">${u.name} ${u.model ? '· <span style="color:#58a6ff">'+u.model+'</span>' : '(任意)'}</div>
+        <div class="up-url">${u.url}</div>
+      </div>
+      <div class="up-actions">${btns}</div>
+    </div>`
+  }).join('') || '<div style="color:#8b949e;font-size:13px;padding:8px">暂无上游</div>'
+}
+
+async function switchUpstream(id){
+  await fetchJSON('/api/upstreams/active', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id})
+  })
+  refresh()
+  refreshUpstreams()
+}
+
+async function deleteUpstream(id){
+  await fetchJSON('/api/upstreams/'+id, {method:'DELETE'})
+  refreshUpstreams()
+}
+
+async function addUpstream(){
+  const name=$('upName').value.trim()
+  const url=$('upUrl').value.trim()
+  const model=$('upModel').value.trim()
+  if(!url) return
+  await fetchJSON('/api/upstreams', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,url,model})
+  })
+  $('upName').value=''
+  $('upUrl').value=''
+  $('upModel').value=''
+  refreshUpstreams()
+}
+
+let _cacheCfg=null
+async function loadCacheConfig(){
+  _cacheCfg=await fetchJSON('/api/cache/config')
+  if(!_cacheCfg) return
+  if(_cacheCfg.backend==='tiered'){
+    $('csHotMax').value=_cacheCfg.hot.max
+    $('csColdMax').value=_cacheCfg.cold.max
+    $('csTtl').value=_cacheCfg.hot.ttl
+    $('coldWrap').style.display=''
+  } else {
+    $('csHotMax').value=_cacheCfg.max
+    $('csTtl').value=_cacheCfg.ttl
+    $('coldWrap').style.display='none'
+  }
+}
+
+async function saveCacheConfig(){
+  const body={
+    hot_max_size: parseInt($('csHotMax').value)||2000,
+    ttl: parseInt($('csTtl').value)||7200,
+  }
+  if(_cacheCfg&&_cacheCfg.backend==='tiered'){
+    body.cold_max_size=parseInt($('csColdMax').value)||10000
+  }
+  await fetchJSON('/api/cache/config',{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  })
+  const msg=$('csMsg')
+  msg.style.display='inline'
+  setTimeout(()=>msg.style.display='none',2000)
+  loadCacheConfig()
+}
+
 refresh()
+refreshUpstreams()
+loadCacheConfig()
 setInterval(refresh, 5000)
+setInterval(refreshUpstreams, 10000)
 </script>
 </body>
 </html>

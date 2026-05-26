@@ -11,17 +11,11 @@ import yaml
 
 
 @dataclass
-class RedisConfig:
-    url: str = "redis://localhost:6379/0"
-    prefix: str = "mimo:rc:"
-
-
-@dataclass
 class CacheConfig:
     max_size: int = 2000
     ttl_seconds: int = 7200
-    backend: str = "memory"  # "memory" | "redis"
-    redis: RedisConfig = field(default_factory=RedisConfig)
+    backend: str = "memory"  # "memory" | "sqlite" | "tiered"
+    db_path: str = "cache.db"
 
 
 @dataclass
@@ -51,7 +45,6 @@ class DashboardConfig:
 
 @dataclass
 class AppConfig:
-    api_key: str = ""
     upstream_api_base: str = ""
     server: ServerConfig = field(default_factory=ServerConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
@@ -74,14 +67,13 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def _apply_env_overrides(cfg_dict: dict) -> dict:
     """环境变量覆盖配置"""
     env_map = {
-        "MIMO_API_KEY": "api_key",
         "MIMO_API_BASE": "upstream_api_base",
         "MIMO_LISTEN_HOST": "server.host",
         "MIMO_LISTEN_PORT": ("server.port", int),
         "MIMO_CACHE_MAX_SIZE": ("cache.max_size", int),
         "MIMO_CACHE_TTL": ("cache.ttl_seconds", int),
         "MIMO_CACHE_BACKEND": "cache.backend",
-        "MIMO_REDIS_URL": "cache.redis.url",
+        "MIMO_CACHE_DB_PATH": "cache.db_path",
         "MIMO_LOG_PERSISTENT": ("logging.persistent", lambda x: x.lower() in ("true", "1", "yes")),
         "MIMO_LOG_DB_PATH": "logging.db_path",
     }
@@ -122,16 +114,13 @@ def load_config(config_path: str | None = None) -> AppConfig:
 
     # 手动构建 dataclass（不支持递归 from_dict）
     server_cfg = ServerConfig(**cfg_dict.get("server", {}))
-    redis_cfg = RedisConfig(**cfg_dict.get("cache", {}).get("redis", {}))
     cache_raw = cfg_dict.get("cache", {})
-    cache_raw.pop("redis", None)
-    cache_cfg = CacheConfig(**cache_raw, redis=redis_cfg)
+    cache_cfg = CacheConfig(**cache_raw)
     logging_cfg = LoggingConfig(**cfg_dict.get("logging", {}))
     retry_cfg = RetryConfig(**cfg_dict.get("retry", {}))
     dashboard_cfg = DashboardConfig(**cfg_dict.get("dashboard", {}))
 
     return AppConfig(
-        api_key=cfg_dict.get("api_key", ""),
         upstream_api_base=cfg_dict.get("upstream_api_base", ""),
         server=server_cfg,
         cache=cache_cfg,

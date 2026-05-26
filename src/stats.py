@@ -21,10 +21,17 @@ class Stats:
     @property
     def uptime(self) -> str:
         s = int(time.time() - self.start_time)
-        for unit, div in [("天", 86400), ("时", 3600), ("分", 60)]:
-            if s >= div:
-                return f"{s // div}{unit}{s % div // 60}分"
-        return f"{s}秒"
+        days = s // 86400
+        hours = (s % 86400) // 3600
+        mins = (s % 3600) // 60
+        parts = []
+        if days:
+            parts.append(f"{days}天")
+        if hours:
+            parts.append(f"{hours}时")
+        if mins or not parts:
+            parts.append(f"{mins}分")
+        return "".join(parts)
 
     def to_dict(self) -> dict:
         hit_total = max(self.cache_hits + self.cache_misses, 1)

@@ -24,3 +24,11 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Runtime data
+upstreams.json
