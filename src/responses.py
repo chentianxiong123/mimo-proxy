@@ -18,15 +18,27 @@ log = logging.getLogger("mimo-proxy")
 
 
 def convert_tools(tools: list) -> list:
-    """Responses API tools → Chat Completions tools"""
+    """Responses API tools → Chat Completions tools
+
+    兼容两种格式：
+    - 嵌套: {"type": "function", "function": {"name": "x", ...}}
+    - 扁平: {"type": "function", "name": "x", "description": "x", "parameters": {...}}
+    """
     result = []
     for tool in tools:
         if not isinstance(tool, dict) or tool.get("type") != "function":
             continue
-        func = {"name": tool.get("name", ""), "description": tool.get("description", "")}
-        if "parameters" in tool:
-            func["parameters"] = _clean_schema(tool["parameters"])
-        result.append({"type": "function", "function": func})
+        name = tool.get("name", "")
+        if "function" in tool:
+            func = tool["function"]
+            cc_func = {"name": func.get("name", name), "description": func.get("description", "")}
+            if "parameters" in func:
+                cc_func["parameters"] = _clean_schema(func["parameters"])
+        else:
+            cc_func = {"name": name, "description": tool.get("description", "")}
+            if "parameters" in tool:
+                cc_func["parameters"] = _clean_schema(tool["parameters"])
+        result.append({"type": "function", "function": cc_func})
     return result
 
 
@@ -100,6 +112,15 @@ def extract_messages(data: dict) -> tuple[list, list, str]:
         if not isinstance(item, dict):
             continue
         t = item.get("type")
+
+        # 兼容无 type 字段的格式：Codex CLI 可能省略 type
+        if not t:
+            if "role" in item:
+                t = "message"
+            elif "call_id" in item and "output" in item:
+                t = "function_call_output"
+            elif "call_id" in item or ("name" in item and "arguments" in item):
+                t = "function_call"
 
         if t == "message":
             flush()
@@ -293,7 +314,7 @@ async def stream_responses_sse(
                         })
 
                     # 工具调用
-                    for tc in delta.get("tool_calls", []):
+                    for tc in (delta.get("tool_calls") or []):
                         idx = tc.get("index", 0)
                         if idx not in tc_acc:
                             tc_acc[idx] = {"id": "", "name": "", "arguments": "", "item_id": f"item_{uuid.uuid4().hex[:12]}", "started": False}

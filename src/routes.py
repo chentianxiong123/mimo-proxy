@@ -51,8 +51,9 @@ class AppContext:
     def get_client(self) -> httpx.AsyncClient:
         if self.client is None or self.client.is_closed:
             self.client = httpx.AsyncClient(
-                timeout=httpx.Timeout(300, connect=30),
+                timeout=httpx.Timeout(300, connect=10),
                 follow_redirects=True,
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
             )
         return self.client
 
@@ -299,22 +300,29 @@ def create_routes(ctx: AppContext) -> list[Route]:
         elif api_key := request.headers.get("api-key"):
             headers["api-key"] = api_key
 
-        upstream_base = ctx.get_upstream_url(model)
-        if upstream_base.endswith("/v1"):
-            upstream_base = upstream_base[:-3]
-        elif upstream_base.endswith("/v1/"):
-            upstream_base = upstream_base[:-4]
+        all_models = []
+        seen = set()
+        upstreams = ctx.upstreams.list_all()
 
-        if "anthropic" in request.url.path:
-            upstream = f"{upstream_base}/anthropic/v1/models"
-        else:
-            upstream = f"{upstream_base}/v1/models"
+        for u in upstreams:
+            base = u.url.rstrip("/")
+            base = base.removesuffix("/v1")
+            endpoint = f"{base}/v1/models"
+            try:
+                resp = await ctx.get_client().get(endpoint, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for m in data.get("data", []):
+                        mid = m.get("id", "")
+                        if mid and mid not in seen:
+                            seen.add(mid)
+                            all_models.append(m)
+            except Exception:
+                continue
 
-        try:
-            resp = await ctx.get_client().get(upstream, headers=headers)
-            return JSONResponse(resp.json(), status_code=resp.status_code)
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=502)
+        if all_models:
+            return JSONResponse({"object": "list", "data": all_models})
+        return JSONResponse({"error": "所有上游均不可达"}, status_code=502)
 
     async def api_stats(request: Request):
         return JSONResponse({

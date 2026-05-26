@@ -224,6 +224,9 @@ async def stream_proxy(
     except httpx.TimeoutException as e:
         log.warning("  ⏰ [OpenAI] 流式超时: %s", e)
         raise UpstreamError(504, str(e))
+    except (httpx.RemoteProtocolError, httpx.LocalProtocolError, OSError) as e:
+        log.warning("  ⚠️ [OpenAI] 连接断开: %s", e)
+        raise UpstreamError(502, str(e))
     except Exception as e:
         log.error("  ❌ [OpenAI] 流式错误: %s", e, exc_info=True)
         raise UpstreamError(502, str(e))

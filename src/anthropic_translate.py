@@ -239,7 +239,7 @@ async def stream_anthropic_sse(
                             "delta": {"type": "text_delta", "text": content}
                         })
 
-                    for tc in delta.get("tool_calls", []):
+                    for tc in (delta.get("tool_calls") or []):
                         idx = tc.get("index", 0)
                         while len(acc_tc) <= idx:
                             acc_tc.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
